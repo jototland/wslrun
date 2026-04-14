@@ -1,0 +1,69 @@
+#! /usr/bin/env python
+"""
+wslrun - run wsl commands seamlessly from windows
+-------------------------------------------------
+This script is intended to run on the linux side.
+Put it into /usr/local/bin/wslrun (or somewhere else in $PATH)
+
+Usage (from windows):
+    wsl --exec wslrun command args...
+
+What it does:
+    The script takes any number of arguments:
+    * The first argument will be the program to run
+    * The remaining arguments will be inspected:
+      * They will be converted by `wslpath` if...
+          * if they contain backslashes,
+          * or if they start with something that looks like a drive letter
+      * Otherwise, they will be unprocessed.
+
+Example output:
+On windows side, running the command:
+    wsl --exec wslrun ls -l C:\foo
+will on the linux side execute:
+    ls -l /mnt/c/foo
+"""
+
+import sys
+import re
+import subprocess
+
+
+def wslpath(s):
+    result = subprocess.run(
+        ['wslpath', s],
+        capture_output=True,
+        text=True
+    )
+    if result.returncode == 0:
+        return result.stdout[0:-1]
+    else:
+        print(f"Warning: cannot convert argument {s}", file=sys.stderr)
+        return s
+
+
+def convert_args(windows_args):
+    linux_args = ["bash", "-l", '-c', 'exec "$@"', '_']
+    for arg in windows_args[1:]:
+        if re.search(r'\\', arg):
+            linux_args.append(wslpath(arg))
+        elif re.match(r'[a-zA-Z]:$', arg):
+            linux_args.append(wslpath(arg + '\\'))
+        else:
+            linux_args.append(arg)
+    return linux_args
+
+
+def run_command(windows_args):
+    if len(windows_args) > 1:
+        linux_args = convert_args(windows_args)
+        retval = subprocess.run(linux_args)
+        return retval.returncode
+    else:
+        print(__doc__, file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    retval = run_command(sys.argv)
+    exit(retval)
